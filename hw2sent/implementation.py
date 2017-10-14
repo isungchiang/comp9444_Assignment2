@@ -45,7 +45,7 @@ def load_data(glove_dict):
         while (len(sen) < 40):
             sen.append(0)
         data.append(sen)
-    data = np.array(data, dtype=np.float32)
+    data = np.array(data, dtype=np.int32)
     return data
 
 
@@ -93,9 +93,9 @@ def define_graph(glove_embeddings_arr):
     num_classes = 2
     seq_length = 40
 
-    #input and output
-    labels = tf.placeholder(tf.int32, [batch_size, num_classes])
-    input_data = tf.placeholder(tf.int32, [batch_size, seq_length])
+    # input and output
+    labels = tf.placeholder(tf.float32, [batch_size, num_classes], name="labels")
+    input_data = tf.placeholder(tf.int32, [batch_size, seq_length], name="input_data")
     # looking up from np array
     data = tf.nn.embedding_lookup(glove_embeddings_arr, input_data)
     # create lstm cell and apply drop out
@@ -105,11 +105,11 @@ def define_graph(glove_embeddings_arr):
     rnn_out, _ = tf.nn.dynamic_rnn(lstm_cell, data, dtype=tf.float32)
     W = tf.Variable(tf.truncated_normal([lstm_num, num_classes]))
     b = tf.Variable(tf.constant(0.05, shape=[num_classes]))
-    # reshape and calculate the logits. take the last one of it as the real logit
-    _logits = tf.reshape(
-        tf.matmul(tf.reshape(rnn_out, [-1, lstm_num]), W) + b,
-        [batch_size, seq_length, num_classes])
-    logits = tf.transpose(_logits, [1, 0, 2])[-1]
+    # transform rnn_out from (50,40,16) to (40,50,16)
+    trans_rnn = tf.transpose(rnn_out, [1, 0, 2])
+    # slice the last one from tans_rnn
+    last_elem = trans_rnn[-1]
+    logits = (tf.matmul(last_elem, W) + b)
     # make prediction and calculate the loss
     prediction = tf.equal(tf.argmax(logits, 1), tf.argmax(labels, 1))
     accuracy = tf.reduce_mean(tf.cast(prediction, tf.float32), name="accuracy")
@@ -117,7 +117,7 @@ def define_graph(glove_embeddings_arr):
     loss = tf.reduce_mean(losses, name="loss")
     # optimize with learning decay
     global_step = tf.Variable(0)
-    learning_rate = tf.train.exponential_decay(0.1, global_step, 10000, 0.9, staircase=True)
+    learning_rate = tf.train.exponential_decay(0.2, global_step, 5000, 0.9, staircase=True)
     optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     gradients, v = zip(*optimizer.compute_gradients(loss))
     gradients, _ = tf.clip_by_global_norm(gradients, 1.25)
